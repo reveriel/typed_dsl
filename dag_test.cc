@@ -22,7 +22,6 @@ TEST(DagTest, BasicStringConcate) {
   EXPECT_EQ(g.node_count(), 2);  // Expect 2 operator nodes
 }
 
-
 TEST(DagTest, MultipleOutputs) {
   // Create operator that returns two values (string, int)
   Op<std::tuple<std::string, int32_t>(std::string)> split_op;
