@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test", "cc_binary")
 
 # Common C++ compiler flags
 copts = [
@@ -21,6 +21,15 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
     copts = copts,
+)
+
+cc_binary(
+    name = "dag_benchmark",
+    srcs = ["dag_benchmark.cc"],
+    deps = [
+        ":dag",
+        "@google_benchmark//:benchmark",
+    ],
 )
 
 load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")

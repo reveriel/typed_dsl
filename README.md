@@ -56,3 +56,43 @@ Format code
 clang-format -i *.{h,cc}
 ```
 
+## Benchmarking
+
+To run the benchmarks:
+
+```bash
+bazel run -c opt :dag_benchmark
+```
+
+The benchmarks measure the performance of:
+
+- Linear DAG creation (simple chain of operations)
+- Multiple outputs DAG creation
+- Wide DAG creation (many parallel operations)
+- Deep DAG creation (long chain of operations)
+
+Result on my Macbook Pro M1 Max
+
+``` plaintext
+2024-11-19T00:39:44+08:00
+Running /private/var/tmp/_bazel_bytedance/9e5a38f5728022097d4b06fbbcd73116/execroot/_main/bazel-out/darwin_x86_64-opt/bin/dag_benchmark
+Run on (12 X 2400 MHz CPU s)
+CPU Caches:
+  L1 Data 64 KiB
+  L1 Instruction 128 KiB
+  L2 Unified 4096 KiB (x12)
+Load Average: 8.52, 5.40, 5.12
+----------------------------------------------------------------
+Benchmark                      Time             CPU   Iterations
+----------------------------------------------------------------
+BM_LinearDAG                1619 ns         1610 ns       435754
+BM_MultipleOutputsDAG       1939 ns         1904 ns       363283
+BM_WideDAG/8                4146 ns         4146 ns       169924
+BM_WideDAG/64              27027 ns        27027 ns        25506
+BM_WideDAG/512            197070 ns       196336 ns         3233
+BM_WideDAG/1024           400324 ns       400320 ns         1817
+BM_DeepDAG/8                4069 ns         3947 ns       177042
+BM_DeepDAG/64              25438 ns        25438 ns        27878
+BM_DeepDAG/512            204398 ns       200028 ns         3599
+BM_DeepDAG/1024           387667 ns       387449 ns         1729
+```
