@@ -4,10 +4,15 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <tuple>
+#include <utility>
 
 // Forward declarations
 template <typename T>
 class Var;
+
+template <typename... Ts>
+class VarTuple;
 
 template <typename T>
 class Node;
@@ -49,6 +54,14 @@ public:
     // The assignment operator in Var will have stored the node info
     if (var.has_pending_node()) {
       pending_nodes_.push_back(var.take_pending_node());
+    }
+  }
+
+  template <typename... Ts>
+  void add(VarTuple<Ts...>& tuple) {
+    if (tuple.has_pending_nodes()) {
+      pending_nodes_.push_back(tuple.take_pending_nodes());
+      // You might want to add additional nodes for each output variable
     }
   }
 
@@ -123,6 +136,62 @@ public:
   }
 };
 
+// Helper class for multiple outputs
+template <typename... Ts>
+class VarTuple {
+  std::tuple<Var<Ts>&...> vars_;
+  bool has_pending_ = false;
+  Program::PendingNode pending_node_;
+
+public:
+  explicit VarTuple(Var<Ts>&... vars) : vars_(vars...) {}
+
+  template <typename OpResult>
+  VarTuple& operator=(OpResult&& result) {
+    if constexpr (sizeof...(Ts) > 0) {
+      set_pending_nodes(std::forward<OpResult>(result),
+                       std::make_index_sequence<sizeof...(Ts)>{});
+    }
+    return *this;
+  }
+
+  bool has_pending_nodes() const { return has_pending_; }
+  
+  Program::PendingNode take_pending_nodes() {
+    has_pending_ = false;
+    return std::move(pending_node_);
+  }
+
+private:
+  template <typename OpResult, size_t... Is>
+  void set_pending_nodes(OpResult&& result, std::index_sequence<Is...>) {
+    auto op_name = result.op_name();
+    auto input_names = result.input_names();
+    
+    // Store the pending node info in the tuple
+    pending_node_ = {op_name, input_names, "tuple_output"};  // You might want a better name
+    has_pending_ = true;
+
+    // Set pending node for each output variable
+    (std::get<Is>(vars_).set_pending_node(
+         op_name + "_out" + std::to_string(Is),
+         input_names),
+     ...);
+  }
+};
+
+// Helper function to create VarTuple - binary version
+template <typename T1, typename T2>
+VarTuple<T1, T2> operator,(Var<T1>& var1, Var<T2>& var2) {
+    return VarTuple<T1, T2>(var1, var2);
+}
+
+template <typename... Ts, typename T>
+VarTuple<Ts..., T> operator,(VarTuple<Ts...> tuple, Var<T>& var) {
+    return VarTuple<Ts..., T>(tuple, var);
+}
+
+
 // Operator wrapper class
 template <typename Signature>
 class Op;
@@ -132,12 +201,39 @@ class Op<R(Args...)> {
   std::string op_name_;
 
 public:
-  Op() : op_name_(typeid(Op).name()) {}  // Use RTTI name as default op name
+  Op() : op_name_(typeid(Op).name()) {}
 
+  // For single output
   Var<R> operator()(const Var<Args>&... inputs) const {
     std::vector<std::string> input_names{inputs.name()...};
     Var<R> result("result_" + op_name_);
     result.set_pending_node(op_name_, input_names);
     return result;
+  }
+};
+
+// Specialization for tuple return types
+template <typename... Rs, typename... Args>
+class Op<std::tuple<Rs...>(Args...)> {
+  std::string op_name_;
+
+public:
+  Op() : op_name_(typeid(Op).name()) {}
+
+  class OpResult {
+    std::string op_name_;
+    std::vector<std::string> input_names_;
+
+  public:
+    OpResult(std::string op_name, std::vector<std::string> input_names)
+        : op_name_(std::move(op_name)), input_names_(std::move(input_names)) {}
+
+    const std::string& op_name() const { return op_name_; }
+    const std::vector<std::string>& input_names() const { return input_names_; }
+  };
+
+  OpResult operator()(const Var<Args>&... inputs) const {
+    std::vector<std::string> input_names{inputs.name()...};
+    return OpResult(op_name_, input_names);
   }
 };
