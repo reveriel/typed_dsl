@@ -1,0 +1,31 @@
+# C++ settings
+build --cxxopt='-std=c++17'
+build --cxxopt='-Wall'
+build --cxxopt='-Wextra'
+build --cxxopt='-Werror'
+
+# Use clang as the C++ compiler
+build --repo_env=CC=clang
+build --repo_env=CXX=clang++
+
+# Build in C++ 17 mode
+build:asan --cxxopt='-std=c++17'
+build:tsan --cxxopt='-std=c++17'
+
+# Address sanitizer
+build:asan --strip=never
+build:asan --copt -fsanitize=address
+build:asan --copt -DADDRESS_SANITIZER
+build:asan --copt -O1
+build:asan --copt -g
+build:asan --copt -fno-omit-frame-pointer
+build:asan --linkopt -fsanitize=address
+
+# Thread sanitizer
+build:tsan --strip=never
+build:tsan --copt -fsanitize=thread
+build:tsan --copt -DTHREAD_SANITIZER
+build:tsan --copt -O1
+build:tsan --copt -g
+build:tsan --copt -fno-omit-frame-pointer
+build:tsan --linkopt -fsanitize=thread 
