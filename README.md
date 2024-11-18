@@ -1,4 +1,6 @@
-# typed DSL embedded in c++
+# DAG Project, a statically type checked DSL embedded in c++ for building DAGs/dataflow graphs
+
+[![Tests](https://github.com/reveriel/typed_dsl/actions/workflows/tests.yml/badge.svg)](https://github.com/reveriel/typed_dsl/actions/workflows/tests.yml)
 
 a DSL embedded in c++ that is statically type checked.
 the DSL is used to express a computational DAG (or a data flow graph).

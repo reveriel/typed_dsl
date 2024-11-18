@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Bazel
+      uses: bazelbuild/setup-bazelisk@v2
+
+    - name: Build and Test
+      run: |
+        bazel test //...
+
+    # Optional: Upload test results
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: bazel-testlogs 
