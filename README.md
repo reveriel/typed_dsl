@@ -71,11 +71,9 @@ The benchmarks measure the performance of:
 - Wide DAG creation (many parallel operations)
 - Deep DAG creation (long chain of operations)
 
-Result on my Macbook Pro M1 Max
+Results on my Macbook Pro M3 Pro
 
 ``` plaintext
-2024-11-19T00:39:44+08:00
-Running /private/var/tmp/_bazel_bytedance/9e5a38f5728022097d4b06fbbcd73116/execroot/_main/bazel-out/darwin_x86_64-opt/bin/dag_benchmark
 Run on (12 X 2400 MHz CPU s)
 CPU Caches:
   L1 Data 64 KiB

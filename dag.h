@@ -242,3 +242,84 @@ public:
     return OpResult(op_name_, input_names);
   }
 };
+
+// Wrapper types for different argument patterns
+template<typename T>
+struct Variadic {
+    using type = T;
+};
+
+// Add specialization for variadic inputs
+template <typename R, typename ArgT>
+class Op<R(Variadic<ArgT>)> {
+  std::string op_name_;
+
+public:
+  Op() : op_name_(typeid(Op).name()) {}
+
+  template <typename... Args>
+  Var<R> operator()(const Args&... args) const {
+    static_assert((std::is_same_v<Args, Var<ArgT>> && ...),
+                  "All arguments must be of the same type Var<ArgT>");
+
+    std::vector<std::string> input_names;
+    input_names.reserve(sizeof...(args));
+    (input_names.push_back(args.name()), ...);
+
+    Var<R> result("result_" + op_name_);
+    result.set_pending_node(op_name_, input_names);
+    return result;
+  }
+};
+
+// Specialization for one fixed argument followed by variadic arguments
+// We can omit the Fixed wrapper if there is only one fixed argument
+template <typename R, typename FixedArgT, typename VarArgT>
+class Op<R(FixedArgT, Variadic<VarArgT>)> {
+  std::string op_name_;
+
+public:
+  Op() : op_name_(typeid(Op).name()) {}
+
+  template<typename... Args>
+  Var<R> operator()(const Var<FixedArgT>& fixed_arg, const Args&... args) const {
+    static_assert((std::is_same_v<Args, Var<VarArgT>> && ...),
+                  "All variadic arguments must be of type Var<VarArgT>");
+
+    std::vector<std::string> input_names;
+    input_names.reserve(1 + sizeof...(args));
+    input_names.push_back(fixed_arg.name());
+    (input_names.push_back(args.name()), ...);
+
+    Var<R> result("result_" + op_name_);
+    result.set_pending_node(op_name_, input_names);
+    return result;
+  }
+};
+
+// Specialization for 2 fixed arguments followed by variadic arguments
+template <typename R, typename FixedArg1T, typename FixedArg2T, typename VarArgT>
+class Op<R(FixedArg1T, FixedArg2T, Variadic<VarArgT>)> {
+  std::string op_name_;
+
+public:
+  Op() : op_name_(typeid(Op).name()) {}
+
+  template<typename... Args>
+  Var<R> operator()(const Var<FixedArg1T>& fixed_arg1,
+                    const Var<FixedArg2T>& fixed_arg2,
+                    const Args&... args) const {
+    static_assert((std::is_same_v<Args, Var<VarArgT>> && ...),
+                  "All variadic arguments must be of type Var<VarArgT>");
+
+    std::vector<std::string> input_names;
+    input_names.reserve(2 + sizeof...(args));
+    input_names.push_back(fixed_arg1.name());
+    input_names.push_back(fixed_arg2.name());
+    (input_names.push_back(args.name()), ...);
+
+    Var<R> result("result_" + op_name_);
+    result.set_pending_node(op_name_, input_names);
+    return result;
+  }
+};

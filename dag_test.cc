@@ -58,6 +58,44 @@ TEST(DagTest, MultipleOutputsWithTuple) {
   EXPECT_EQ(g.node_count(), 2);
 }
 
+TEST(DagTest, VaridicOp) {
+  // merge n inputs into one output
+
+  // Takes a vector as a single argument
+  Op<std::string(std::vector<std::string>)> vector_op;
+
+  // Takes variadic arguments
+  Op<std::string(Variadic<std::string>)> variadic_op;
+
+  Op<std::string(std::string, Variadic<int32_t>)> mixed_op;
+
+  Op<std::string(std::string, bool, Variadic<int32_t>)> mixed_op2;
+
+  Program p;
+  // Usage:
+  Var<std::vector<std::string>> vec("vec");
+  Var<std::string> result1("result1");
+  p.add(result1 = vector_op(vec));  // Takes vector as single argument
+
+  Var<std::string> result2("result2");
+  p.add(result2 = variadic_op(Var<std::string>("a"), Var<std::string>("b"),
+                              Var<std::string>("c")));
+
+  Var<int32_t> int1("int1");
+  Var<int32_t> int2("int2");
+  Var<int32_t> int3("int3");
+  Var<std::string> result3("result3");
+  p.add(result3 = mixed_op(Var<std::string>("hello"), int1, int2, int3));
+
+  Var<std::string> result4("result4");
+  p.add(result4 = mixed_op2(Var<std::string>("hello"), Var<bool>("bool"), int1,
+                            int2, int3));
+
+  Graph g = p.graph();
+  EXPECT_EQ(g.node_count(), 4);
+}
+
+
 // what if type is wrong?
 TEST(DagTest, TypeMismatch) {
   Op<std::string(std::string)> concat_op;
