@@ -3,9 +3,9 @@
 #include <string>
 
 TEST(DagTest, BasicStringConcate) {
-  // Create operators
-  Op<std::string(std::string, std::string)> concat_op;
-  Op<int32_t(std::string)> parse_int_op;
+  // Create operators with readable names
+  Op<std::string(std::string, std::string)> concat_op("concat_op");
+  Op<int32_t(std::string)> parse_int_op("parse_int_op");
 
   // Create variables
   Var<std::string> output("output");
@@ -19,12 +19,33 @@ TEST(DagTest, BasicStringConcate) {
   p.add(int_val = parse_int_op(output));
 
   Graph g = p.graph();
-  EXPECT_EQ(g.node_count(), 2);  // Expect 2 operator nodes
+  g.print();
+
+  // Print the graph structure
+  g.print();
+
+  // Verify node count
+  EXPECT_EQ(g.node_count(), 2);
+
+  // Verify operators exist
+  EXPECT_TRUE(g.has_node(concat_op.name()));
+  EXPECT_TRUE(g.has_node(parse_int_op.name()));
+
+  // Verify connections
+  EXPECT_TRUE(g.consumes(concat_op.name(), "input_a"));
+  EXPECT_TRUE(g.consumes(concat_op.name(), "input_b"));
+  EXPECT_TRUE(g.produces(concat_op.name(), "output"));
+
+  EXPECT_TRUE(g.consumes(parse_int_op.name(), "output"));
+  EXPECT_TRUE(g.produces(parse_int_op.name(), "int_val"));
+
+  // Verify data flow
+  EXPECT_TRUE(g.has_edge("output", "int_val"));
 }
 
 TEST(DagTest, MultipleOutputs) {
-  // Create operator that returns two values (string, int)
-  Op<std::tuple<std::string, int32_t>(std::string)> split_op;
+  // Create operator that returns two values (string, int) with a readable name
+  Op<std::tuple<std::string, int32_t>(std::string)> split_op("split_op");
 
   // Create variables
   Var<std::string> input("input");
@@ -36,16 +57,29 @@ TEST(DagTest, MultipleOutputs) {
   p.add((str_output, int_output) = split_op(input));
 
   Graph g = p.graph();
-  EXPECT_EQ(g.node_count(),
-            1);  // expect one node for the split_op
+  g.print();
+
+  // Verify node count
+  EXPECT_EQ(g.node_count(), 1);
+
+  // Verify operator exists
+  EXPECT_TRUE(g.has_node(split_op.name()));
+
+  // Verify connections
+  EXPECT_TRUE(g.consumes(split_op.name(), "input"));
+  EXPECT_TRUE(g.produces(split_op.name(), "str_output"));
+  EXPECT_TRUE(g.produces(split_op.name(), "int_output"));
+
+  // Verify inputs and outputs
+  auto inputs = g.get_inputs(split_op.name());
+  EXPECT_EQ(inputs.size(), 1);
+  EXPECT_EQ(inputs[0], "input");
 }
 
 TEST(DagTest, MultipleOutputsWithTuple) {
-  // Create operator that returns two values (string, int)
-  Op<std::tuple<std::string, int32_t>(std::string)> split_op;
-  Op<std::string(int32_t)> int_to_str_op;
+  Op<std::tuple<std::string, int32_t>(std::string)> split_op("split_op");
+  Op<std::string(int32_t)> int_to_str_op("int_to_str_op");
 
-  // Create variables
   Var<std::string> input("input");
   Var<std::string> str_output("str_output");
   Var<int32_t> int_output("int_output");
@@ -55,21 +89,38 @@ TEST(DagTest, MultipleOutputsWithTuple) {
   p.add((str_output, int_output) = split_op(input));
 
   Graph g = p.graph();
+  g.print();
+
+  // Verify structure
   EXPECT_EQ(g.node_count(), 2);
+  EXPECT_TRUE(g.has_node(split_op.name()));
+  EXPECT_TRUE(g.has_node(int_to_str_op.name()));
+
+  // Verify split_op connections
+  EXPECT_TRUE(g.consumes(split_op.name(), "input"));
+  EXPECT_TRUE(g.produces(split_op.name(), "str_output"));
+  EXPECT_TRUE(g.produces(split_op.name(), "int_output"));
+
+  // Verify int_to_str_op connections
+  EXPECT_TRUE(g.consumes(int_to_str_op.name(), "int_output"));
+  EXPECT_TRUE(g.produces(int_to_str_op.name(), "str_output"));
+
+  // Verify data flow
+  EXPECT_TRUE(g.has_edge("int_output", "str_output"));
 }
 
 TEST(DagTest, VaridicOp) {
   // merge n inputs into one output
 
   // Takes a vector as a single argument
-  Op<std::string(std::vector<std::string>)> vector_op;
+  Op<std::string(std::vector<std::string>)> vector_op("vector_op");
 
   // Takes variadic arguments
-  Op<std::string(Variadic<std::string>)> variadic_op;
+  Op<std::string(Variadic<std::string>)> variadic_op("variadic_op");
 
-  Op<std::string(std::string, Variadic<int32_t>)> mixed_op;
+  Op<std::string(std::string, Variadic<int32_t>)> mixed_op("mixed_op");
 
-  Op<std::string(std::string, bool, Variadic<int32_t>)> mixed_op2;
+  Op<std::string(std::string, bool, Variadic<int32_t>)> mixed_op2("mixed_op2");
 
   Program p;
   // Usage:
@@ -92,13 +143,14 @@ TEST(DagTest, VaridicOp) {
                             int2, int3));
 
   Graph g = p.graph();
+  g.print();
   EXPECT_EQ(g.node_count(), 4);
 }
 
 
 // what if type is wrong?
 TEST(DagTest, TypeMismatch) {
-  Op<std::string(std::string)> concat_op;
+  Op<std::string(std::string)> concat_op("concat_op");
   Var<int32_t> int_val("int_val");
   Program p;
   // this line should fail at compile time with a message like:
@@ -111,8 +163,8 @@ TEST(DagTest, TypeMismatch) {
 
 // we can use c++ native if else
 TEST(DagTest, IfElse) {
-  Op<bool(int32_t)> is_even_op;
-  Op<int32_t(int32_t)> double_op;
+  Op<bool(int32_t)> is_even_op("is_even_op");
+  Op<int32_t(int32_t)> double_op("double_op");
   Var<int32_t> input("input");
   Var<int32_t> output("output");
   Program p;
