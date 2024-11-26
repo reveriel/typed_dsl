@@ -8,6 +8,7 @@ copts = [
 cc_library(
     name = "dag",
     hdrs = ["dag.h"],
+    srcs = ["dag.cpp"],
     deps = [],
     visibility = ["//visibility:public"],
     copts = copts,
@@ -20,7 +21,7 @@ cc_test(
         ":dag",
         "@com_google_googletest//:gtest_main",
     ],
-    copts = copts,
+    copts = ["-g"],
 )
 
 cc_binary(

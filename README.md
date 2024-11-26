@@ -36,6 +36,95 @@ future). It add a layer of indirection.
 
 We can implement both at the same time. provide two levels of API.
 
+## Design
+
+* Program level:
+  * Op: a operator class, with a name, works like a function.
+  * Var: a variable
+  * Free Vars: variables that are not the output of any operator.
+
+  Example: concat three strings
+
+  ``` c++
+  Op<std::string(std::string,std::string)> concat_op("concat_op");
+  VarStr output = concat_op(VarStr("a"), VarStr("b"));
+  output = concat_op(output, VarStr("c"));
+  output.set_name("output");
+  ```
+
+Note: variable name for input and output is significant and wil be kepted in
+generated DAG. they act as the interface to the outside world. Intermediate
+variables' names are generated automatically.
+
+  In this example, `a`, `b`, `c` are input variables. `output` is the output
+  variable.
+
+We generate variable names and unique operator node names automatically, when
+translating program to DAG.
+
+* DAG level:
+  * Node: a node in the DAG, binds to an operator class
+    * node name: unique name in DAG
+    * op_class: the class of the operator
+    * inputs: the input variables, unique names in DAG
+    * outputs: the output variables, unique names in DAG
+
+
+example DAG generated from previous example:
+
+
+  ``` plaintext
+  var_0 = concat_op_0(a, b)
+  var_1 = concat_op_1(var_0, c)
+  ```
+
+##  More Examples
+
+loop over a list of `Var<string>` and concat them into a single string
+
+``` c++
+Op<Res(Res, std::string)> concat_op("concat_op");
+std::list<VarStr> items = {VarStr("a"), VarStr("b"), VarStr("c")};
+VarStr output("output");
+for (int i = 1; i < items.size(); ++i) {
+  output = concat_op(output, items[i]);
+}
+
+```
+
+generated DAG:
+
+``` plaintext
+var_0 = concat_op(a, b)
+output = concat_op(var_0, c)
+```
+
+
+``` c++
+Op<CrossFeaturePtr(std::vector<Gid>, BfsServiceParams, CtxInfo, std::vector<ModelConfig>)> cross_feature_op("cross_feature_op");
+
+
+Op<std::tuple<std::vector<std::string>, std::vector<std::string>>, std::unordered_set<Tag>>(ABParam*, std::vector<std::string>, std::vector<std::string>, LabelMap) TagUsageParser("tag_usage_parser");
+
+
+Op<std::vector<Tags>(Tagger, std::vector<std::string>, std::vector<Gid>)> TaggerOp("tagger_op");
+
+auto gids = VarVec<Gid>("gids");
+
+auto cross_feature = cross_feature_op(gids, Var<BfsServiceParams>("bfs_service_params"), Var<CtxInfo>("ctx_info"), VarVec<ModelConfig>("model_configs"));
+
+(rough_tags, predict_tags, tags_id) = TagUsageParser(Var<ABParam>("ab_param"), VarVec<std::string>("input_tags"), VarVec<std::string>("output_tags"), Var<LabelMap>("label_map"));
+
+auto tagger = Var<Tagger>("tagger");
+auto tags_for_rough = TaggerOp(tagger, rough_tags, gids);
+auto tags_for_predict = TaggerOp(tagger, predict_tags, gids);
+```
+
+if we declare two var with the same name, will it be a problem?
+it is not ok.
+
+
+
 ## Usage
 
 run test with sanitizers:
@@ -93,4 +182,14 @@ BM_DeepDAG/8                4069 ns         3947 ns       177042
 BM_DeepDAG/64              25438 ns        25438 ns        27878
 BM_DeepDAG/512            204398 ns       200028 ns         3599
 BM_DeepDAG/1024           387667 ns       387449 ns         1729
+```
+
+
+## Debug
+
+add the following to `.bazelrc` to enable source file map for debugging
+
+```
+build:debug --strip=never
+build:debug --copt=-g
 ```

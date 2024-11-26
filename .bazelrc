@@ -29,3 +29,10 @@ build:tsan --copt -O1
 build:tsan --copt -g
 build:tsan --copt -fno-omit-frame-pointer
 build:tsan --linkopt -fsanitize=thread 
+
+build:debug --strip=never
+build:debug --copt=-g
+build:debug --cxxopt=-g 
+build:debug --compilation_mode=dbg
+# This is important - it helps maintain correct source paths
+build:debug --fission=no

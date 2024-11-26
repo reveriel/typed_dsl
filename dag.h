@@ -5,6 +5,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <iostream>
@@ -23,31 +24,37 @@ class Node;
 // Graph representation
 class Graph {
   struct NodeInfo {
-    std::string op_name;
+    std::string name;
+    std::string op_class;
     std::vector<std::string> inputs;
     std::vector<std::string> outputs;
   };
   std::vector<NodeInfo> nodes_;
 
 public:
-  void add_node(const std::string& op_name,
+  void add_node(const std::string& op_class,
                 const std::vector<std::string>& inputs,
                 const std::vector<std::string>& outputs) {
-    nodes_.push_back({op_name, inputs, outputs});
+    // generate a unique name for the node based on op_class
+    std::string op_name = op_class + "_" + std::to_string(nodes_.size());
+    nodes_.push_back({op_name, op_class, inputs, outputs});
   }
 
   size_t node_count() const {
     return nodes_.size();
   }
 
+  // debug string for a node,  {inputs} -> {node_name} -> {outputs}
+  std::string to_string(const std::string& node_name) const;
+
   // Predicate for testing: does op_name exist?
-  bool has_node(const std::string& op_name) const {
+  bool has_node(const std::string& node_name) const {
     return std::any_of(nodes_.begin(), nodes_.end(), [&](const NodeInfo& node) {
-      return node.op_name == op_name;
+      return node.name == node_name;
     });
   }
 
-  // Predicate for testing: does op_name consume input?
+  // Predicate for testing: does node_name consume input?
   bool has_edge(const std::string& from, const std::string& to) const {
     for (const auto& node : nodes_) {
       if (node.outputs.size() > 0 && node.outputs[0] == to) {
@@ -58,10 +65,10 @@ public:
     return false;
   }
 
-  // Predicate for testing: does op_name produce output?
-  bool produces(const std::string& op_name, const std::string& output) const {
+  // Predicate for testing: does node_name produce output?
+  bool produces(const std::string& node_name, const std::string& output) const {
     for (const auto& node : nodes_) {
-      if (node.op_name == op_name) {
+      if (node.name == node_name) {
         return std::find(node.outputs.begin(), node.outputs.end(), output) !=
                node.outputs.end();
       }
@@ -69,10 +76,10 @@ public:
     return false;
   }
 
-  // Predicate for testing: does op_name consume input?
-  bool consumes(const std::string& op_name, const std::string& input) const {
+  // Predicate for testing: does node_name consume input?
+  bool consumes(const std::string& node_name, const std::string& input) const {
     for (const auto& node : nodes_) {
-      if (node.op_name == op_name) {
+      if (node.name == node_name) {
         return std::find(node.inputs.begin(), node.inputs.end(), input) !=
                node.inputs.end();
       }
@@ -81,9 +88,9 @@ public:
   }
 
   // Get all inputs for a specific operator
-  std::vector<std::string> get_inputs(const std::string& op_name) const {
+  std::vector<std::string> get_inputs(const std::string& node_name) const {
     for (const auto& node : nodes_) {
-      if (node.op_name == op_name) {
+      if (node.name == node_name) {
         return node.inputs;
       }
     }
@@ -91,9 +98,9 @@ public:
   }
 
   // Get the output for a specific operator
-  std::vector<std::string> get_outputs(const std::string& op_name) const {
+  std::vector<std::string> get_outputs(const std::string& node_name) const {
     for (const auto& node : nodes_) {
-      if (node.op_name == op_name) {
+      if (node.name == node_name) {
         return node.outputs;
       }
     }
@@ -102,15 +109,15 @@ public:
 
   // Method to print the graph structure
   void print() const {
-    std::cout << "Graph Structure:" << std::endl;
+    std::cout << "Graph Structure (node_count=" << node_count() << "):" << std::endl;
     for (const auto& node : nodes_) {
-      std::cout << "Node: " << node.op_name << std::endl;
-      std::cout << "  Inputs: ";
+      std::cout << " + Node: " << node.name << std::endl;
+      std::cout << "   - Inputs: ";
       for (const auto& input : node.inputs) {
         std::cout << input << " ";
       }
       std::cout << std::endl;
-      std::cout << "  Outputs: ";
+      std::cout << "   - Outputs: ";
       for (const auto& output : node.outputs) {
         std::cout << output << " ";
       }
@@ -119,34 +126,41 @@ public:
   }
 };
 
+
 // Program to build the graph
 class Program {
+private:
+  // set of variable names to avoid name conflict
+  // in a program, input and output variables must have unique names.
+  std::unordered_set<std::string> var_names;
+public:
+  static Program& current() {
+    static Program instance;
+    return instance;
+  }
+  template <typename T>
+  friend class Var;
+
 public:
   struct PendingNode {
     std::string op_name;
     std::vector<std::string> inputs;
     std::vector<std::string> output;
   };
-  // pending nodes to be added to the graph.
   std::vector<PendingNode> pending_nodes_;
 
-public:
   template <typename T>
   void add(Var<T>& var) {
-    // The assignment operator in Var will have stored the node info
-    if (var.has_pending_node()) {
-      pending_nodes_.push_back(var.take_pending_node());
-    }
+    pending_nodes_.push_back(var.take_pending_node());
   }
 
   template <typename... Ts>
   void add(VarTuple<Ts...>& tuple) {
-    if (tuple.has_pending_nodes()) {
-      pending_nodes_.push_back(tuple.take_pending_nodes());
-    }
+    pending_nodes_.push_back(tuple.take_pending_node());
   }
 
   Graph graph() const {
+    // Create a new graph from the pending nodes
     Graph g;
     for (const auto& node : pending_nodes_) {
       g.add_node(node.op_name, node.inputs, node.output);
@@ -154,7 +168,6 @@ public:
     return g;
   }
 };
-
 
 // Variable wrapper class
 template <typename T>
@@ -165,34 +178,63 @@ private:
   bool has_pending_ = false;
 
 public:
-  // variable assignment.
-  // if a Var has pending node, it can not be assigned again.
+  // Constructor, if no name is provided, it will be "__var".
+  // name is required and unique for graph's input and output variables.
+  // throw error if the name is already used in a Program.
+  explicit Var(const std::string& name = "__var") : name_(name) {
+    // "__var" is a default name for unnamed Var. These are usually internal
+    // vars. We will rename them to avoid conflict when generating DAG.
+    if (name == "__var") {
+      return;
+    }
+    // check name conflict
+    std::unordered_set<std::string>& var_names = Program::current().var_names;
+    if (var_names.find(name) != var_names.end()) {
+      throw std::runtime_error("Var name already exists");
+    }
+    var_names.insert(name);
+  }
+
+  // Make copy constructor not available, because each named Var must be unique.
+  Var(const Var& other) = delete;
+
+  // Copy assignment operator, used in every assignment statement.
+  // It will make the new Var has a pending node.
   Var& operator=(const Var& other) {
     if (has_pending_) {
       throw std::runtime_error("Var already assigned");
     }
-    pending_node_ = std::move(other.pending_node_);
+
+    pending_node_ = other.pending_node_;
+
+    // The output should be this var's name plus a unique suffix
     pending_node_.output = {name_};
+
     has_pending_ = other.has_pending_;
     return *this;
   }
 
+  // Move assignment operator
   Var& operator=(Var&& other) {
     if (has_pending_) {
       throw std::runtime_error("Var already assigned");
     }
+
     pending_node_ = std::move(other.pending_node_);
+
     pending_node_.output = {name_};
+
     has_pending_ = other.has_pending_;
+
+    // Automatically add to current program
+    Program::current().add(*this);
+
     return *this;
   }
 
-  // copy constructor deleted. because a var is unique in the dag.
-  Var(const Var& other) = delete;
-  // move constructor ok
+  // Move constructor
   Var(Var&& other) = default;
 
-  explicit Var(const std::string& name) : name_(name) {}
 
   const std::string& name() const {
     return name_;
@@ -211,6 +253,18 @@ public:
                         const std::vector<std::string>& inputs) {
     pending_node_ = {op_name, inputs, {}};
     has_pending_ = true;
+
+    pending_node_.output = {name_};
+  }
+
+  // Add a new operator= for Op results
+  template <typename OpType>
+  Var& operator=(OpType&& op) {
+    // First assign the operation result to this var
+    *this = std::forward<OpType>(op);
+    // Then automatically add it to the current program
+    Program::current().add(*this);
+    return *this;
   }
 };
 
@@ -261,11 +315,20 @@ public:
     return has_pending_;
   }
 
-  Program::PendingNode take_pending_nodes() {
+  Program::PendingNode take_pending_node() {
     has_pending_ = false;
     return std::move(pending_node_);
   }
 
+  // Add a new operator= for Op results
+  template <typename OpType>
+  VarTuple& operator=(OpType&& op) {
+    // First assign the operation result
+    *this = std::forward<OpType>(op);
+    // Then automatically add it to the current program
+    Program::current().add(*this);
+    return *this;
+  }
 };
 
 // Helper function to create VarTuple - binary version
@@ -300,6 +363,20 @@ public:
     std::vector<std::string> input_names{inputs.name()...};
     Var<R> result("_result_" + op_name_);
     result.set_pending_node(op_name_, input_names);
+    return result;
+  }
+
+  // Add this method to support chaining operations
+  Var<R> operator()(Var<R>&& input) const {
+    std::vector<std::string> input_names{input.name()};
+    Var<R> result("_result_" + op_name_);
+    result.set_pending_node(op_name_, input_names);
+    
+    // If the input has a pending node, we need to add it to the program first
+    if (input.has_pending_node()) {
+      Program::current().add(input);
+    }
+    
     return result;
   }
 };

@@ -5,7 +5,7 @@
 // Benchmark creating a simple linear DAG
 static void BM_LinearDAG(benchmark::State& state) {
   for (auto _ : state) {
-    Op<int32_t(int32_t)> op1, op2, op3;
+    Op<int32_t(int32_t)> op1("op1"), op2("op2"), op3("op3");
     Var<int32_t> input("input");
     Var<int32_t> v1("v1"), v2("v2"), output("output");
 
@@ -22,8 +22,8 @@ BENCHMARK(BM_LinearDAG);
 // Benchmark creating a DAG with multiple outputs
 static void BM_MultipleOutputsDAG(benchmark::State& state) {
   for (auto _ : state) {
-    Op<std::tuple<int32_t, int32_t>(int32_t)> split_op;
-    Op<int32_t(int32_t)> process_op;
+    Op<std::tuple<int32_t, int32_t>(int32_t)> split_op("split_op");
+    Op<int32_t(int32_t)> process_op("process_op");
 
     Var<int32_t> input("input");
     Var<int32_t> out1("out1"), out2("out2");
@@ -43,7 +43,7 @@ static void BM_WideDAG(benchmark::State& state) {
   const int width = state.range(0);
 
   for (auto _ : state) {
-    Op<int32_t(int32_t)> op;
+    Op<int32_t(int32_t)> op("op");
     Var<int32_t> input("input");
     Program p;
 
@@ -63,7 +63,7 @@ static void BM_DeepDAG(benchmark::State& state) {
   const int depth = state.range(0);
 
   for (auto _ : state) {
-    Op<int32_t(int32_t)> op;
+    Op<int32_t(int32_t)> op("op");
     Program p;
 
     Var<int32_t> input("input");
