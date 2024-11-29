@@ -1,15 +1,16 @@
 #pragma once
 #include <algorithm>
 #include <functional>
+#include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <iostream>
-#include <sstream>
+#include <stack>
 
 // Forward declarations
 template <typename T>
@@ -18,8 +19,9 @@ class Var;
 template <typename... Ts>
 class VarTuple;
 
-template <typename T>
-class Node;
+class Graph;
+class IR;
+class Program;
 
 // Graph representation
 class Graph {
@@ -30,53 +32,34 @@ class Graph {
     std::vector<std::string> outputs;
   };
   std::vector<NodeInfo> nodes_;
+  std::unordered_set<std::string> placeholders_;
 
 public:
   void add_node(const std::string& op_class,
                 const std::vector<std::string>& inputs,
-                const std::vector<std::string>& outputs) {
-    // generate a unique name for the node based on op_class
+                const std::vector<std::string>& outputs,
+                const std::vector<std::string>& placeholder_inputs = {}) {
     std::string op_name = op_class + "_" + std::to_string(nodes_.size());
     nodes_.push_back({op_name, op_class, inputs, outputs});
+    for (const auto& input : placeholder_inputs) {
+      placeholders_.insert(input);
+    }
+  }
+
+  bool is_placeholder(const std::string& var_name) const {
+    return placeholders_.find(var_name) != placeholders_.end();
   }
 
   size_t node_count() const {
     return nodes_.size();
   }
 
-  // debug string for a node,  {inputs} -> {node_name} -> {outputs}
-  std::string to_string(const std::string& node_name) const;
-
-  // Predicate for testing: does op_name exist?
   bool has_node(const std::string& node_name) const {
     return std::any_of(nodes_.begin(), nodes_.end(), [&](const NodeInfo& node) {
       return node.name == node_name;
     });
   }
 
-  // Predicate for testing: does node_name consume input?
-  bool has_edge(const std::string& from, const std::string& to) const {
-    for (const auto& node : nodes_) {
-      if (node.outputs.size() > 0 && node.outputs[0] == to) {
-        return std::find(node.inputs.begin(), node.inputs.end(), from) !=
-               node.inputs.end();
-      }
-    }
-    return false;
-  }
-
-  // Predicate for testing: does node_name produce output?
-  bool produces(const std::string& node_name, const std::string& output) const {
-    for (const auto& node : nodes_) {
-      if (node.name == node_name) {
-        return std::find(node.outputs.begin(), node.outputs.end(), output) !=
-               node.outputs.end();
-      }
-    }
-    return false;
-  }
-
-  // Predicate for testing: does node_name consume input?
   bool consumes(const std::string& node_name, const std::string& input) const {
     for (const auto& node : nodes_) {
       if (node.name == node_name) {
@@ -87,87 +70,286 @@ public:
     return false;
   }
 
-  // Get all inputs for a specific operator
-  std::vector<std::string> get_inputs(const std::string& node_name) const {
+  bool consumes(const std::string& node_name,
+                const std::vector<std::string>& inputs) const {
     for (const auto& node : nodes_) {
       if (node.name == node_name) {
-        return node.inputs;
+        return std::all_of(
+            inputs.begin(), inputs.end(), [&](const std::string& input) {
+              return std::find(node.inputs.begin(), node.inputs.end(), input) !=
+                     node.inputs.end();
+            });
       }
     }
-    return {};
+    return false;
   }
 
-  // Get the output for a specific operator
-  std::vector<std::string> get_outputs(const std::string& node_name) const {
+  bool produces(const std::string& node_name, const std::string& output) const {
     for (const auto& node : nodes_) {
       if (node.name == node_name) {
-        return node.outputs;
+        return std::find(node.outputs.begin(), node.outputs.end(), output) !=
+               node.outputs.end();
       }
     }
-    return {};
+    return false;
   }
 
-  // Method to print the graph structure
   void print() const {
-    std::cout << "Graph Structure (node_count=" << node_count() << "):" << std::endl;
+    std::cout << "Graph Structure (node_count=" << node_count()
+              << "):" << std::endl;
     for (const auto& node : nodes_) {
       std::cout << " + Node: " << node.name << std::endl;
       std::cout << "   - Inputs: ";
-      for (const auto& input : node.inputs) {
+      for (const auto& input : node.inputs)
         std::cout << input << " ";
-      }
-      std::cout << std::endl;
-      std::cout << "   - Outputs: ";
-      for (const auto& output : node.outputs) {
+      std::cout << std::endl << "   - Outputs: ";
+      for (const auto& output : node.outputs)
         std::cout << output << " ";
-      }
       std::cout << std::endl;
     }
   }
 };
 
+// IR Node Types
+enum class IRNodeType { PLACEHOLDER, OPERATION, VARIABLE };
+
+// IR Node representing operations before they're compiled into the final graph
+struct IRNode {
+  IRNodeType type;
+  std::string name;
+  std::string op_class;
+  std::vector<std::string> inputs;
+  std::vector<std::string> outputs;
+  bool is_dead = false;
+
+  IRNode(const std::string& op, const std::vector<std::string>& ins,
+         const std::vector<std::string>& outs)
+      : type(IRNodeType::OPERATION), op_class(op), inputs(ins), outputs(outs) {
+    name = op + "_" + std::to_string(get_next_id());
+  }
+
+  static IRNode create_placeholder(const std::string& name) {
+    IRNode node("", {}, {name});
+    node.type = IRNodeType::PLACEHOLDER;
+    node.name = name;
+    return node;
+  }
+
+private:
+  static size_t get_next_id() {
+    static size_t next_id = 0;
+    return next_id++;
+  }
+};
+
+// Intermediate Representation
+class IR {
+private:
+  std::vector<IRNode> nodes_;
+  std::unordered_map<std::string, size_t> var_to_last_def_;
+  std::unordered_set<std::string> placeholders_;
+
+public:
+  void add_node(IRNode node) {
+    for (const auto& output : node.outputs) {
+      var_to_last_def_[output] = nodes_.size();
+    }
+    nodes_.push_back(std::move(node));
+  }
+
+  void add_placeholder(const std::string& name) {
+    placeholders_.insert(name);
+    add_node(IRNode::create_placeholder(name));
+  }
+
+  void optimize() {
+    dead_store_elimination();
+  }
+
+  void dead_store_elimination() {
+    std::unordered_set<size_t> live_nodes;
+    std::unordered_set<std::string> live_vars;
+
+    for (const auto& [var, idx] : var_to_last_def_) {
+      if (placeholders_.count(var) > 0 ||
+          var.find("__var") == std::string::npos) {
+        live_vars.insert(var);
+        live_nodes.insert(idx);
+      }
+    }
+
+    bool changed;
+    do {
+      changed = false;
+      for (size_t i = nodes_.size(); i-- > 0;) {
+        if (live_nodes.count(i) > 0) {
+          for (const auto& input : nodes_[i].inputs) {
+            if (live_vars.insert(input).second) {
+              auto it = var_to_last_def_.find(input);
+              if (it != var_to_last_def_.end()) {
+                live_nodes.insert(it->second);
+                changed = true;
+              }
+            }
+          }
+        }
+      }
+    } while (changed);
+
+    for (size_t i = 0; i < nodes_.size(); i++) {
+      nodes_[i].is_dead = (live_nodes.count(i) == 0);
+    }
+  }
+
+  Graph to_graph() const {
+    Graph g;
+    for (const auto& node : nodes_) {
+      if (!node.is_dead && node.type == IRNodeType::OPERATION) {
+        g.add_node(node.op_class, node.inputs, node.outputs,
+                   get_placeholder_inputs(node.inputs));
+      }
+    }
+    return g;
+  }
+
+private:
+  std::vector<std::string>
+  get_placeholder_inputs(const std::vector<std::string>& inputs) const {
+    std::vector<std::string> result;
+    for (const auto& input : inputs) {
+      if (placeholders_.count(input) > 0) {
+        result.push_back(input);
+      }
+    }
+    return result;
+  }
+};
+
+// Context for managing program scopes
+class Context {
+private:
+  std::stack<Program*> program_stack_;
+
+  static Context& instance() {
+    static Context ctx;
+    return ctx;
+  }
+
+public:
+  static void push_program(Program* prog) {
+    if (!prog) {
+      throw std::runtime_error("Cannot push null program to context");
+    }
+    instance().program_stack_.push(prog);
+  }
+
+  static void pop_program() {
+    auto& ctx = instance();
+    if (ctx.program_stack_.empty()) {
+      throw std::runtime_error("Cannot pop from empty program stack");
+    }
+    ctx.program_stack_.pop();
+  }
+
+  static Program& current_program() {
+    auto& ctx = instance();
+    if (ctx.program_stack_.empty()) {
+      throw std::runtime_error("No active program context");
+    }
+    return *ctx.program_stack_.top();
+  }
+
+  // RAII helper for program scope
+  class Scope {
+    private:
+      bool active_ = false;
+    
+    public:
+      explicit Scope(Program* prog) {
+        if (!prog) {
+          throw std::runtime_error("Cannot create scope with null program");
+        }
+        push_program(prog);
+        active_ = true;
+      }
+
+      ~Scope() {
+        if (active_) {
+          pop_program();
+        }
+      }
+
+      // Prevent copying
+      Scope(const Scope&) = delete;
+      Scope& operator=(const Scope&) = delete;
+
+      // Allow moving
+      Scope(Scope&& other) noexcept : active_(other.active_) {
+        other.active_ = false;
+      }
+
+      Scope& operator=(Scope&& other) noexcept {
+        if (this != &other) {
+          if (active_) {
+            pop_program();
+          }
+          active_ = other.active_;
+          other.active_ = false;
+        }
+        return *this;
+      }
+  };
+};
 
 // Program to build the graph
 class Program {
 private:
-  // set of variable names to avoid name conflict
-  // in a program, input and output variables must have unique names.
-  std::unordered_set<std::string> var_names;
-public:
-  static Program& current() {
-    static Program instance;
-    return instance;
-  }
-  template <typename T>
-  friend class Var;
+  IR ir_;
+  std::unordered_set<std::string> var_names_;
 
 public:
+  Program() = default;
+
   struct PendingNode {
     std::string op_name;
     std::vector<std::string> inputs;
-    std::vector<std::string> output;
+    std::vector<std::string> outputs;
   };
-  std::vector<PendingNode> pending_nodes_;
 
   template <typename T>
   void add(Var<T>& var) {
-    pending_nodes_.push_back(var.take_pending_node());
+    auto pending = var.take_pending_node();
+    ir_.add_node(IRNode(pending.op_name, pending.inputs, pending.outputs));
   }
 
   template <typename... Ts>
   void add(VarTuple<Ts...>& tuple) {
-    pending_nodes_.push_back(tuple.take_pending_node());
+    auto pending = tuple.take_pending_node();
+    ir_.add_node(IRNode(pending.op_name, pending.inputs, pending.outputs));
   }
 
   Graph graph() const {
-    // Create a new graph from the pending nodes
-    Graph g;
-    for (const auto& node : pending_nodes_) {
-      g.add_node(node.op_name, node.inputs, node.output);
+    auto ir_copy = ir_;
+    ir_copy.optimize();
+    return ir_copy.to_graph();
+  }
+
+  void register_var_name(const std::string& name) {
+    if (name != "__var" && var_names_.find(name) != var_names_.end()) {
+      throw std::runtime_error("Var name already exists: " + name);
     }
-    return g;
+    var_names_.insert(name);
+  }
+
+  void register_placeholder(const std::string& name) {
+    register_var_name(name);
+    ir_.add_placeholder(name);
   }
 };
+
+// Tag for placeholder
+struct placeholder_t {};
+[[maybe_unused]] static constexpr placeholder_t placeholder{};
 
 // Variable wrapper class
 template <typename T>
@@ -178,63 +360,43 @@ private:
   bool has_pending_ = false;
 
 public:
-  // Constructor, if no name is provided, it will be "__var".
-  // name is required and unique for graph's input and output variables.
-  // throw error if the name is already used in a Program.
   explicit Var(const std::string& name = "__var") : name_(name) {
-    // "__var" is a default name for unnamed Var. These are usually internal
-    // vars. We will rename them to avoid conflict when generating DAG.
-    if (name == "__var") {
-      return;
+    if (name != "__var") {
+      Context::current_program().register_var_name(name);
     }
-    // check name conflict
-    std::unordered_set<std::string>& var_names = Program::current().var_names;
-    if (var_names.find(name) != var_names.end()) {
-      throw std::runtime_error("Var name already exists");
-    }
-    var_names.insert(name);
   }
 
-  // Make copy constructor not available, because each named Var must be unique.
+  Var(placeholder_t, const std::string& name) : name_(name) {
+    Context::current_program().register_placeholder(name);
+  }
+
+  // Make copy constructor not available
   Var(const Var& other) = delete;
-
-  // Copy assignment operator, used in every assignment statement.
-  // It will make the new Var has a pending node.
-  Var& operator=(const Var& other) {
-    if (has_pending_) {
-      throw std::runtime_error("Var already assigned");
-    }
-
-    pending_node_ = other.pending_node_;
-
-    // The output should be this var's name plus a unique suffix
-    pending_node_.output = {name_};
-
-    has_pending_ = other.has_pending_;
-    return *this;
-  }
-
-  // Move assignment operator
-  Var& operator=(Var&& other) {
-    if (has_pending_) {
-      throw std::runtime_error("Var already assigned");
-    }
-
-    pending_node_ = std::move(other.pending_node_);
-
-    pending_node_.output = {name_};
-
-    has_pending_ = other.has_pending_;
-
-    // Automatically add to current program
-    Program::current().add(*this);
-
-    return *this;
-  }
 
   // Move constructor
   Var(Var&& other) = default;
 
+  Var& operator=(const Var& other) {
+    pending_node_ = other.pending_node_;
+    if (pending_node_.outputs.empty()) {
+      pending_node_ = {"copy", {other.name()}, {name_}};
+    } else {
+      pending_node_.outputs = {name_};
+    }
+    has_pending_ = true;
+    Context::current_program().add(*this);
+    return *this;
+  }
+
+  Var& operator=(Var&& other) {
+    pending_node_ = std::move(other.pending_node_);
+    pending_node_.outputs = {name_};
+    has_pending_ = other.has_pending_;
+    if (has_pending_) {
+      Context::current_program().add(*this);
+    }
+    return *this;
+  }
 
   const std::string& name() const {
     return name_;
@@ -250,20 +412,16 @@ public:
   }
 
   void set_pending_node(const std::string& op_name,
-                        const std::vector<std::string>& inputs) {
-    pending_node_ = {op_name, inputs, {}};
+                      const std::vector<std::string>& inputs) {
+    pending_node_ = {op_name, inputs, {name_}};
     has_pending_ = true;
-
-    pending_node_.output = {name_};
   }
 
-  // Add a new operator= for Op results
   template <typename OpType>
-  Var& operator=(OpType&& op) {
-    // First assign the operation result to this var
+  std::enable_if_t<!std::is_same_v<std::decay_t<OpType>, Var>, Var&>
+  operator=(OpType&& op) {
     *this = std::forward<OpType>(op);
-    // Then automatically add it to the current program
-    Program::current().add(*this);
+    Context::current_program().add(*this);
     return *this;
   }
 };
@@ -271,48 +429,27 @@ public:
 // Helper class for multiple outputs
 template <typename... Ts>
 class VarTuple {
+private:
   std::tuple<Var<Ts>&...> vars_;
-  bool has_pending_ = false;
   Program::PendingNode pending_node_;
+  bool has_pending_ = false;
 
 public:
   explicit VarTuple(Var<Ts>&... vars) : vars_(vars...) {}
 
-  VarTuple<Ts...>& operator=(Var<std::tuple<Ts...>>&& result) {
-    std::cout << "VarTuple operator=" << std::endl;
-
+  VarTuple& operator=(Var<std::tuple<Ts...>>&& result) {
     if (has_pending_) {
       throw std::runtime_error("VarTuple already assigned");
     }
-
-    // Move the pending node from the result
     pending_node_ = result.take_pending_node();
-
-    // Reserve space for outputs
-    pending_node_.output.reserve(sizeof...(Ts));
-
-    // Traverse the tuple and get the name of each var
+    pending_node_.outputs.clear();
     std::apply(
         [&](auto&... vars) {
-          ((pending_node_.output.push_back(vars.name())), ...);
+          (pending_node_.outputs.push_back(vars.name()), ...);
         },
         vars_);
-
-    has_pending_ = true;  // Mark this VarTuple as having a pending node
+    has_pending_ = true;
     return *this;
-  }
-
-  // debug string
-  std::string to_string() const {
-    std::stringstream ss;
-    ss << "VarTuple(";
-    std::apply([&](auto&... vars) { ((ss << vars.name() << ", "), ...); }, vars_);
-    ss << ")";
-    return ss.str();
-  }
-
-  bool has_pending_nodes() const {
-    return has_pending_;
   }
 
   Program::PendingNode take_pending_node() {
@@ -320,27 +457,19 @@ public:
     return std::move(pending_node_);
   }
 
-  // Add a new operator= for Op results
   template <typename OpType>
   VarTuple& operator=(OpType&& op) {
-    // First assign the operation result
     *this = std::forward<OpType>(op);
-    // Then automatically add it to the current program
-    Program::current().add(*this);
+    Context::current_program().add(*this);
     return *this;
   }
 };
 
-// Helper function to create VarTuple - binary version
-template <typename T1, typename T2>
-VarTuple<T1, T2> operator,(Var<T1>& var1, Var<T2>& var2) {
-  return VarTuple<T1, T2>(var1, var2);
-}
-
-template <typename... Ts, typename T>
-VarTuple<Ts..., T> operator,(VarTuple<Ts...> tuple, Var<T>& var) {
-  return VarTuple<Ts..., T>(tuple, var);
-}
+// Wrapper types for different argument patterns
+template <typename T>
+struct Variadic {
+  using type = T;
+};
 
 // Operator wrapper class
 template <typename Signature>
@@ -351,43 +480,35 @@ class Op<R(Args...)> {
   std::string op_name_;
 
 public:
-  // Constructor accepting a string for the operation name
-  Op(const std::string& name) : op_name_(name) {}
+  explicit Op(const std::string& name) : op_name_(name) {}
 
   const std::string& name() const {
     return op_name_;
   }
 
-  // For single output
+  static std::string get_next_var_name(const std::string& op_name) {
+    static std::unordered_map<std::string, size_t> op_counters;
+    return op_name + "_" + std::to_string(op_counters[op_name]++) + "/output";
+  }
+
   Var<R> operator()(const Var<Args>&... inputs) const {
     std::vector<std::string> input_names{inputs.name()...};
-    Var<R> result("_result_" + op_name_);
+    Var<R> result(get_next_var_name(op_name_));
     result.set_pending_node(op_name_, input_names);
     return result;
   }
 
-  // Add this method to support chaining operations
   Var<R> operator()(Var<R>&& input) const {
     std::vector<std::string> input_names{input.name()};
-    Var<R> result("_result_" + op_name_);
+    Var<R> result(get_next_var_name(op_name_));
     result.set_pending_node(op_name_, input_names);
-    
-    // If the input has a pending node, we need to add it to the program first
     if (input.has_pending_node()) {
-      Program::current().add(input);
+      Context::current_program().add(input);
     }
-    
     return result;
   }
 };
 
-// Wrapper types for different argument patterns
-template <typename T>
-struct Variadic {
-  using type = T;
-};
-
-// Add specialization for variadic inputs
 template <typename R, typename ArgT>
 class Op<R(Variadic<ArgT>)> {
   std::string op_name_;
@@ -399,6 +520,11 @@ public:
     return op_name_;
   }
 
+  static std::string get_next_var_name(const std::string& op_name) {
+    static std::unordered_map<std::string, size_t> op_counters;
+    return op_name + "_" + std::to_string(op_counters[op_name]++) + "/output";
+  }
+
   template <typename... Args>
   Var<R> operator()(const Args&... args) const {
     static_assert((std::is_same_v<Args, Var<ArgT>> && ...),
@@ -408,22 +534,26 @@ public:
     input_names.reserve(sizeof...(args));
     (input_names.push_back(args.name()), ...);
 
-    Var<R> result("result_" + op_name_);
+    Var<R> result(get_next_var_name(op_name_));
     result.set_pending_node(op_name_, input_names);
     return result;
   }
 };
 
-// Specialization for one fixed argument followed by variadic arguments
-// We can omit the Fixed wrapper if there is only one fixed argument
 template <typename R, typename FixedArgT, typename VarArgT>
 class Op<R(FixedArgT, Variadic<VarArgT>)> {
   std::string op_name_;
 
 public:
   Op(const std::string& name) : op_name_(name) {}
+  
   const std::string& name() const {
     return op_name_;
+  }
+
+  static std::string get_next_var_name(const std::string& op_name) {
+    static std::unordered_map<std::string, size_t> op_counters;
+    return op_name + "_" + std::to_string(op_counters[op_name]++) + "/output";
   }
 
   template <typename... Args>
@@ -437,13 +567,12 @@ public:
     input_names.push_back(fixed_arg.name());
     (input_names.push_back(args.name()), ...);
 
-    Var<R> result("result_" + op_name_);
+    Var<R> result(get_next_var_name(op_name_));
     result.set_pending_node(op_name_, input_names);
     return result;
   }
 };
 
-// Specialization for 2 fixed arguments followed by variadic arguments
 template <typename R, typename FixedArg1T, typename FixedArg2T,
           typename VarArgT>
 class Op<R(FixedArg1T, FixedArg2T, Variadic<VarArgT>)> {
@@ -451,8 +580,14 @@ class Op<R(FixedArg1T, FixedArg2T, Variadic<VarArgT>)> {
 
 public:
   Op(const std::string& name) : op_name_(name) {}
+  
   const std::string& name() const {
     return op_name_;
+  }
+
+  static std::string get_next_var_name(const std::string& op_name) {
+    static std::unordered_map<std::string, size_t> op_counters;
+    return op_name + "_" + std::to_string(op_counters[op_name]++) + "/output";
   }
 
   template <typename... Args>
@@ -468,8 +603,21 @@ public:
     input_names.push_back(fixed_arg2.name());
     (input_names.push_back(args.name()), ...);
 
-    Var<R> result("result_" + op_name_);
+    Var<R> result(get_next_var_name(op_name_));
     result.set_pending_node(op_name_, input_names);
     return result;
   }
 };
+
+// Helper functions for VarTuple creation
+template <typename T1, typename T2>
+VarTuple<T1, T2> operator,(Var<T1>& var1, Var<T2>& var2) {
+  return VarTuple<T1, T2>(var1, var2);
+}
+
+template <typename... Ts, typename T>
+VarTuple<Ts..., T> operator,(VarTuple<Ts...> tuple, Var<T>& var) {
+  return std::apply(
+      [&](auto&... vars) { return VarTuple<Ts..., T>(vars..., var); },
+      tuple.vars_);
+}

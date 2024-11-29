@@ -1,0 +1,18 @@
+cc_library(
+    name = "dag",
+    hdrs = ["dag.h"],
+    strip_include_prefix = ".",
+)
+
+cc_test(
+    name = "dag_test",
+    srcs = ["dag_test.cc"],
+    deps = [
+        ":dag",
+        "@com_google_googletest//:gtest_main",
+    ],
+    copts = [
+        "-g",  # Add debug symbols
+        "-O0", # Disable optimization for better debugging
+    ],
+)
