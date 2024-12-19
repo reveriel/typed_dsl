@@ -36,3 +36,8 @@ build:debug --cxxopt=-g
 build:debug --compilation_mode=dbg
 # This is important - it helps maintain correct source paths
 build:debug --fission=no
+
+# Generate compile_commands.json
+build --experimental_generate_json_trace_profile
+build --experimental_cc_implementation_deps
+build --features=cc_compilation_info

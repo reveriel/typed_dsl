@@ -1,7 +1,17 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test", "cc_binary")
+
+# Common C++ compiler flags
+copts = [
+    "-std=c++17",
+]
+
 cc_library(
     name = "dag",
     hdrs = ["dag.h"],
-    strip_include_prefix = ".",
+    srcs = ["dag.cpp"],
+    deps = [],
+    visibility = ["//visibility:public"],
+    copts = copts,
 )
 
 cc_test(
@@ -9,10 +19,24 @@ cc_test(
     srcs = ["dag_test.cc"],
     deps = [
         ":dag",
-        "@com_google_googletest//:gtest_main",
+        "@googletest//:gtest_main",  # Updated to use Bzlmod-style dependency
     ],
-    copts = [
-        "-g",  # Add debug symbols
-        "-O0", # Disable optimization for better debugging
+    copts = ["-g"],
+)
+
+cc_binary(
+    name = "dag_benchmark",
+    srcs = ["dag_benchmark.cc"],
+    deps = [
+        ":dag",
+        "@google_benchmark//:benchmark",
     ],
+)
+
+load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
+
+refresh_compile_commands(
+    name = "refresh_compile_commands",
+    targets = {},
+    exclude_headers = "all",
 )
